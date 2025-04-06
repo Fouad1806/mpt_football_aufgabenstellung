@@ -1,4 +1,5 @@
 from ultralytics import YOLO
+import cv2
 
 class Detector:
     def __init__(self):
@@ -36,10 +37,14 @@ class Detector:
         #   2: Player
         #   3: Referee
 
-        # Testing out the output
-        print(data)
-        print(data["image"].shape)
+        # Loading Frame and converting it into RGB
+        image = data["image"]
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
+        # Running YOLO on the Frame
+        results = self.model(image_rgb)        
+
+        print(results[0])
         return {
             "detections": None,
             "classes": None
