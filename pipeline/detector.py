@@ -10,7 +10,7 @@ class Detector:
         # TODO: Implement start up procedure of the module
         if not self.model:
             self.model = YOLO(self.model_name)
-        pass
+        print(f"[{self.name}] Model '{self.model_name}' loaded") # For Debugging
 
     def stop(self, data):
         # TODO: Implement shut down procedure of the module
@@ -35,6 +35,10 @@ class Detector:
         #   1: GoalKeeper
         #   2: Player
         #   3: Referee
+
+        # Testing out the output
+        print(data)
+        print(data["image"].shape)
 
         return {
             "detections": None,
