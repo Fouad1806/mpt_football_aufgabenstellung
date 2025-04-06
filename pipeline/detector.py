@@ -42,9 +42,11 @@ class Detector:
         image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         # Running YOLO on the Frame
-        results = self.model(image_rgb)        
+        results = self.model(image_rgb)
+        result = results[0]
+        names = result.names
+        print(names)    
 
-        print(results[0])
         return {
             "detections": None,
             "classes": None
