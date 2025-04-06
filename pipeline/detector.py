@@ -1,9 +1,15 @@
+from ultralytics import YOLO
+
 class Detector:
     def __init__(self):
         self.name = "Detector" # Do not change the name of the module as otherwise recording replay would break!
+        self.model = None
+        self.model_name = "yolov8n-football.pt"
 
     def start(self, data):
         # TODO: Implement start up procedure of the module
+        if not self.model:
+            self.model = YOLO(self.model_name)
         pass
 
     def stop(self, data):
