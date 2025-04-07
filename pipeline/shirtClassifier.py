@@ -1,27 +1,45 @@
+import numpy as np
 class ShirtClassifier:
     def __init__(self):
-        self.name = "Shirt Classifier" # Do not change the name of the module as otherwise recording replay would break!
+        self.name = "Shirt Classifier"  # Do not change the name!
 
     def start(self, data):
-        # TODO: Implement start up procedure of the module
         pass
 
     def stop(self, data):
-        # TODO: Implement shut down procedure of the module
         pass
 
     def step(self, data):
-        # TODO: Implement processing of a current frame list
-        # The task of the shirt classifier module is to identify the two teams based on their shirt color and to assign each player to one of the two teams
 
-        # Note: You can access data["image"] and data["tracks"] to receive the current image as well as the current track list
-        # You must return a dictionary with the given fields:
-        #       "teamAColor":       A 3-tuple (B, G, R) containing the blue, green and red channel values (between 0 and 255) for team A
-        #       "teamBColor":       A 3-tuple (B, G, R) containing the blue, green and red channel values (between 0 and 255) for team B
-        #       "teamClasses"       A list with an integer class for each track according to the following mapping:
-        #           0: Team not decided or not a player (e.g. ball, goal keeper, referee)
-        #           1: Player belongs to team A
-        #           2: Player belongs to team B
-        return { "teamAColor": None,
-                 "teamBColor": None,
-                 "teamClasses": None }
+        image = data["image"]
+        tracks = data["tracks"]
+        classes = data["trackClasses"]
+
+        player_colors = []
+        player_indices = []
+
+        for i, (x, y, w, h) in enumerate(tracks):
+            if classes[i] not in [1, 2]: # Only consider players and goalkeepers
+                continue
+
+            # Calculate box and comply with image limits
+            x1 = int(max(0, x - w / 2))
+            y1 = int(max(0, y - h / 2))
+            x2 = int(min(image.shape[1], x + w / 2))
+            y2 = int(min(image.shape[0], y + h / 2))
+
+            # Only use the jersey (upper) area of the boxes
+            trickot_box = image[y1:y1 + (y2 - y1) // 2, x1:x2]
+            if trickot_box.size > 0:
+                # Extract average jersey colour
+                avg_color = trickot_box.mean(axis=(0, 1))
+                player_colors.append(avg_color)
+                player_indices.append(i)
+                # DEBUG: Round and print the average color
+                avg_color = avg_color.round().astype(int)
+                print(f"Player {i} color: {avg_color}")
+        return {
+            "teamAColor": (0, 0, 255),
+            "teamBColor": (255, 0, 0),
+            "teamClasses": [0] * len(tracks)
+    }
