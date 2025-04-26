@@ -1,4 +1,5 @@
 from ultralytics import YOLO
+import numpy as np
 import cv2
 
 class Detector:
@@ -45,9 +46,14 @@ class Detector:
         results = self.model(image_rgb)
         result = results[0]
         names = result.names
-        print(names)    
+        
+        # print(result.boxes) # Boxes contains the necessary information for detections and classes
+
+        detections = result.boxes.xywh.numpy()
+        classes = result.boxes.cls.numpy().reshape(-1, 1)
+
 
         return {
-            "detections": None,
-            "classes": None
+            "detections": detections,
+            "classes": classes
         }
