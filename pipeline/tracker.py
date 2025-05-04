@@ -2,6 +2,8 @@
 # The filter class represents the current state of the track (predicted position, size, velocity) as well as additional information (track age, class, missing updates, etc..)
 # The filter class is also responsible for assigning a unique ID to each newly formed track
 import numpy as np
+from scipy.optimize import linear_sum_assignment
+
 
 global_id_counter = 0
 
@@ -42,6 +44,7 @@ class Tracker:
     def __init__(self):
         self.name = "Tracker" # Do not change the name of the module as otherwise recording replay would break!
         self.tracks = []
+        self.max_missing = 5
         
     def start(self, data):
         # TODO: Implement start up procedure of the module
@@ -56,8 +59,9 @@ class Tracker:
         detections = data.get("detections", np.array([]))
         classes = data.get("classes", np.array([]))
         distance_threshold = 50.0 
-        existing_tracks = self.tracks.copy()  # Kopie für matching
+        existing_tracks = self.tracks.copy()  # copy for matching
         updated_tracks = []
+
 
         for i in range(len(detections)):
             z = detections[i]
@@ -65,8 +69,8 @@ class Tracker:
             center_det = z[0:2]
             best_track = None
             best_distance = float('inf')
-
-            # Innerer Loop
+            
+            # find nearest existing track
             for track in existing_tracks:
                 center_track = track.bbox[0:2]
                 dist = np.linalg.norm(np.array(center_det) - np.array(center_track))
@@ -74,19 +78,21 @@ class Tracker:
                     best_distance = dist
                     best_track = track
 
-        if best_track is not None and best_distance < distance_threshold:
-                best_track.update(z)
-                updated_tracks.append(best_track)
-                existing_tracks.remove(best_track)
-        else:
-                new_track = Filter(z, cls)
-                updated_tracks.append(new_track)
+
+            if best_track is not None and best_distance < distance_threshold:
+                    best_track.update(z)
+                    updated_tracks.append(best_track)
+                    existing_tracks.remove(best_track)
+            else:
+                    new_track = Filter(z, cls)
+                    updated_tracks.append(new_track)
 
         for track in existing_tracks:
             track.predict() 
             updated_tracks.append(track)
 
-        self.tracks = updated_tracks
+        self.tracks = [t for t in updated_tracks if t.missing <= self.max_missing]
+
 
         N = len(self.tracks)
         return {
