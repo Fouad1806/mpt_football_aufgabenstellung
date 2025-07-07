@@ -4,9 +4,14 @@ import cv2 as cv
 class ShirtClassifier:
     def __init__(self):
         self.name = "Shirt Classifier"  # Do not change the name!
+        self.team_colors_initialized = False
+        self.team_a_color = None
+        self.team_b_color = None
 
     def start(self, data):
-        pass
+        self.team_colors_initialized = False
+        self.team_a_color = None
+        self.team_b_color = None
 
     def stop(self, data):
         pass
@@ -16,8 +21,8 @@ class ShirtClassifier:
         tracks = data["tracks"]
         classes = data["trackClasses"]
 
-        team_a_color = (0, 0, 255)  # Red
-        team_b_color = (255, 0, 0)  # Blue
+        team_a_color = (255, 0, 0)  # Default red color for Team A
+        team_b_color = (0, 0, 255)  # Default blue color for Team B
         team_classes = [0] * len(tracks)
 
         player_colors = []
@@ -25,7 +30,7 @@ class ShirtClassifier:
 
         # Step 1: Extract shirt region color for each player
         for i, (x, y, w, h) in enumerate(tracks):
-            if classes[i] not in [2]:
+            if classes[i] not in [1, 2, 3]:
                 continue
 
             x1 = max(0, int(x - w / 2))
@@ -53,20 +58,22 @@ class ShirtClassifier:
             (cv.TERM_CRITERIA_EPS + cv.TERM_CRITERIA_MAX_ITER, 10, 1.0),
             10, cv.KMEANS_PP_CENTERS)
 
-        # Step 4: Determine which cluster is closer to red
-        red = np.array([0, 0, 255], dtype=np.float32)
-        dists_to_red = [np.linalg.norm(center - red) for center in centers]
+        # Step 4: Set team colors once (after K-means)
+        if not self.team_colors_initialized:
+            self.team_a_color = tuple(map(int, centers[0]))
+            self.team_b_color = tuple(map(int, centers[1]))
+            self.team_colors_initialized = True
+            print(f"Team colors initialized: A={self.team_a_color}, B={self.team_b_color}") #Debugging output
+        
+        team_a_color = self.team_a_color
+        team_b_color = self.team_b_color
 
-        red_cluster = int(np.argmin(dists_to_red))
-        blue_cluster = 1 - red_cluster
-
-        # Step 5: Assign teamClasses accordingly
         for idx, label in enumerate(labels.flatten()):
             track_index = player_indices[idx]
-            if label == red_cluster:
+            if label == 0:
                 team_classes[track_index] = 1  # Team A
-            else:
-                team_classes[track_index] = 2  # Team B
+            else:  # label == 1
+                team_classes[track_index] = -1  # Team B 
 
         return {
             "teamAColor": team_a_color,
