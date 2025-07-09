@@ -70,7 +70,7 @@ class Filter:
         '''
         innovation = z[:2] - self.state[:2] 
         self.state[:2] += Filter.ALPHA * innovation 
-        self.velocity = Filter.BETA * self.velocity + Filter.BETA * innovation 
+        self.velocity = (1- Filter.BETA) * self.velocity + Filter.BETA * innovation 
 
         self.state[2:] = z[2:]
         self.missing = 0
@@ -99,6 +99,7 @@ class Tracker:
     def __init__(self, iou_thr: float = 0.3, max_missing: dict[int, int] | None = None):
         super().__init__()
         self.name = "Tracker" 
+        self.iou_thr = iou_thr
         self.max_missing = max_missing or {0: 1, 1: 5, 2: 5, 3: 5}
         self.tracks = [] 
         
@@ -129,7 +130,7 @@ class Tracker:
         if cost.size:
             row_ind, col_ind = linear_sum_assignment(cost)
             for r, c in zip(row_ind, col_ind):
-                if self.tracks[r].cls == classes[c]:
+                if cost[r, c] < (1 - self.iou_thr) and self.tracks[r].cls == classes[c]:
                     matches.append((r, c))
                     unmatched_tracks.discard(r)
                     unmatched_detections.discard(c)
