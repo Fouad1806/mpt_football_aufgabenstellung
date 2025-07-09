@@ -6,10 +6,10 @@ from scipy.optimize import linear_sum_assignment
 
 def iou_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """
-    Berechnet die IoU (Intersection over Union) für alle Paarungen zweier
-    Bounding-Box-Mengen im Center-Format [cx, cy, w, h].
-
-    Rückgabe: (N x M)-Matrix, Eintrag ∈ [0,-1]
+    computes the Intersection over Union (IoU) for all pairings of 
+    two sets of bounding boxes in center format [cx, cy, w, h].
+    The output is a matrix of shape (len(a), len(b)) where each element (i, j)
+    represents the IoU between the i-th box in `a` and the j-th box in `b`.
     """
     if a.size == 0 or b.size == 0:
         return np.zeros((len(a), len(b)), dtype=np.float32)
@@ -37,9 +37,11 @@ class Filter:
     Each track is represented by a filter that keeps track of its position, velocity, age, number of missing frames
     and class ID.
     '''
+    
     _next_id = 0
-    ALPHA = 0.8  # Gewicht für glättendes Velocity-Update
+    ALPHA = 0.8 
     BETA = 0.2
+
     def __init__(self, det, cls):
         '''
         Initialize a new filter instance for a detected object.
@@ -51,16 +53,16 @@ class Filter:
         cls: int
             Class ID of the detected object.    
         '''
-        self.state = det.astype(float)  # [X, Y, W, H]
-        self.age = 1 
+        self.state = det.astype(float) 
         self.velocity = np.zeros(2, dtype=float)
-        self.missing = 0 
         self.cls = int(cls)
+
+        self.age = 1
+        self.missing = 0
 
         self.id = Filter._next_id
         Filter._next_id += 1
         
-    # TODO: Implement remaining funtionality for an individual track
 
     def update(self, z):
         '''
@@ -76,16 +78,16 @@ class Filter:
         self.missing = 0
         
 
-    def predict(self, optical_flow: np.ndarray):
+    def predict(self, flow: np.ndarray):
         '''
         predict the next state of the track based on its current state, velocity and the given optical flow.
         x = x + v
         '''
-        self.state[:2] += self.velocity - optical_flow
+        self.state[:2] += self.velocity - flow
         self.age += 1
         self.missing += 1
     
-    def is_valid(self, max_missing=5):
+    def is_valid(self, max_missing: dict[int, int] | None = None):
         return self.missing <= max_missing
  
     def to_bbox(self):
@@ -104,21 +106,19 @@ class Tracker:
         self.tracks = [] 
         
     def start(self, data):
-        # TODO: Implement start up procedure of the module
         self.tracks = []
 
     def stop(self, data):
-        # TODO: Implement shut down procedure of the module
         pass
 
     def step(self, data):
         '''
         main tracking step: runs prediction, association, update and prepares the output.
         '''
-        detections, classes, optical_flow = self._parse_input(data)
+        detections, classes, flow = self._parse_input(data)
 
         for tr in self.tracks:
-            tr.predict(optical_flow)
+            tr.predict(flow)
 
         cost = 1 - iou_matrix(np.vstack([tr.to_bbox() for tr in self.tracks]) if self.tracks else np.empty((0, 4)), 
                               detections)
@@ -155,59 +155,13 @@ class Tracker:
         """
         detections = data.get("detections", np.array([]))
         classes = data.get("classes", np.array([]))
-        optical_flow = data.get("opticalFlow", np.zeros((2,)))
+        flow = data.get("opticalFlow", np.zeros((2,)))
         
-        return detections, classes, optical_flow
+        return detections, classes, flow
 
-    def _assign(self, detections):
-        '''
-        assigns detections to existing tracks using the Hungarian algorithm and a distance threshold.
-        '''
-        M, N = len(self.tracks), len(detections)
-        assignments, assigned_tracks, assigned_detections = [], set(), set()
-        if M > 0 and N > 0:
-            preds = np.array([tr.to_bbox()[:2] for tr in self.tracks])
-            det = detections[:, :2]
-            cost = np.linalg.norm(preds[:, None, :] - det[None, :, :], axis=2)
-
-            row_ind, col_ind = linear_sum_assignment(cost)
-            assignments = [(r, c) for r, c in zip(row_ind, col_ind) if cost[r, c] <= self.distance_threshold]
-        else:
-            assignments = []
-
-        assigned_tracks = {r for r, _ in assignments}
-        assigned_detections = {c for _, c in assignments}
-
-        return assignments, assigned_tracks, assigned_detections
-    
     def _is_on_field(self, track, img_w=1920, img_h=1080):
         cx, cy, w, h = track.to_bbox()
         return (0 <= cx <= img_w) and (0 <= cy <= img_h) and (10 <= w <= img_w) and (10 <= h <= img_h)
-
-    
-   
-    def _update_tracks(self, assignments, assigned_tr, assigned_d, detections, classes):
-        """
-        Updates all tracks based on the new detections and optical flow.
-        """
-        new_tracks = []
-
-        # matched
-        for ti, di in assignments:
-            self.tracks[ti].update(detections[di])
-            new_tracks.append(self.tracks[ti])
-        # unmatched tracks
-        for indx, track in enumerate(self.tracks):
-            if indx not in assigned_tr:
-                if track.is_valid(self.max_missing) and self._is_on_field(track):
-                    new_tracks.append(track)
-        # new detections
-        for dindx, det in enumerate(detections):
-            if dindx not in assigned_d:
-                new_tracks.append(Filter(det, classes[dindx]))
-
-        self.tracks = new_tracks
-
     
     def _parse_output(self):
         """
