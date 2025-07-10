@@ -39,8 +39,8 @@ class Filter:
     '''
     
     _next_id = 0
-    ALPHA = 0.8 
-    BETA = 0.2
+    ALPHA = 0.6
+    BETA = 0.15
 
     def __init__(self, det, cls):
         '''
@@ -62,7 +62,6 @@ class Filter:
 
         self.id = Filter._next_id
         Filter._next_id += 1
-        
 
     def update(self, z):
         '''
@@ -77,7 +76,6 @@ class Filter:
         self.state[2:] = z[2:]
         self.missing = 0
         
-
     def predict(self, flow: np.ndarray):
         '''
         predict the next state of the track based on its current state, velocity and the given optical flow.
@@ -86,23 +84,18 @@ class Filter:
         self.state[:2] += self.velocity - flow
         self.age += 1
         self.missing += 1
-    
-    def is_valid(self, max_missing: dict[int, int] | None = None):
-        return self.missing <= max_missing
  
     def to_bbox(self):
-        '''
-        returns the bounding box of the current track.
-        '''
-        return self.state.copy() 
+        return self.state
     
 
 class Tracker:
-    def __init__(self, iou_thr: float = 0.3, max_missing: dict[int, int] | None = None):
+    def __init__(self, iou_thr: float = 0.3, max_missing: dict[int, int] | None = None, vmax_px: dict[int, int] | None = None):
         super().__init__()
         self.name = "Tracker" 
         self.iou_thr = iou_thr
         self.max_missing = max_missing or {0: 1, 1: 5, 2: 5, 3: 5}
+        self.vmax_px = vmax_px or {0: 120, 1: 50, 2: 50, 3: 50}
         self.tracks = [] 
         
     def start(self, data):
@@ -115,11 +108,13 @@ class Tracker:
         '''
         main tracking step: runs prediction, association, update and prepares the output.
         '''
-        detections, classes, flow = self._parse_input(data)
+        detections, classes, flow, img_h, img_w = self._parse_input(data)
 
+        # a) Prädiktion
         for tr in self.tracks:
             tr.predict(flow)
 
+        # b) Assoziation
         cost = 1 - iou_matrix(np.vstack([tr.to_bbox() for tr in self.tracks]) if self.tracks else np.empty((0, 4)), 
                               detections)
 
@@ -135,17 +130,37 @@ class Tracker:
                     unmatched_tracks.discard(r)
                     unmatched_detections.discard(c)
 
+        # c) Update
         for ti, di in matches:
             self.tracks[ti].update(detections[di])
         
+        # d) Create new tracks for unmatched detections
         for di in unmatched_detections:
+            if self.tracks:
+                best_iou = iou_matrix(detections[di : di + 1], np.vstack([tr.to_bbox() for tr in self.tracks])).max()
+                if best_iou > 0.45:
+                    continue
             self.tracks.append(Filter(detections[di], classes[di]))
 
-        self.tracks = [
-            tr for idx, tr in enumerate(self.tracks)
-            if idx not in unmatched_tracks
-            or tr.missing <= self.max_missing.get(tr.cls, 5)
-        ]
+        # e) Remove tracks that are not valid anymore
+
+        alive = []
+        for tr in self.tracks:
+            vmax = self.vmax_px.get(tr.cls, 50)
+            tr.velocity = np.clip(tr.velocity, -vmax, vmax)
+
+            cx, cy = tr.state[:2]
+            if not self._is_on_field(tr, img_w, img_h):
+                continue
+
+            if tr.missing > self.max_missing.get(tr.cls, 5):
+                continue
+
+            alive.append(tr)
+
+        self.tracks = alive
+
+
 
         return self._parse_output()  
     
@@ -156,12 +171,13 @@ class Tracker:
         detections = data.get("detections", np.array([]))
         classes = data.get("classes", np.array([]))
         flow = data.get("opticalFlow", np.zeros((2,)))
+        img_h, img_w= data.get("image", np.zeros((1080, 1920, 3))).shape[:2]
         
-        return detections, classes, flow
+        return detections, classes, flow, img_h, img_w
 
     def _is_on_field(self, track, img_w=1920, img_h=1080):
         cx, cy, w, h = track.to_bbox()
-        return (0 <= cx <= img_w) and (0 <= cy <= img_h) and (10 <= w <= img_w) and (10 <= h <= img_h)
+        return (0 <= cx <= img_w) and (0 <= cy <= img_h) and (w >= 2) and (h >= 2)
     
     def _parse_output(self):
         """
@@ -176,6 +192,7 @@ class Tracker:
                 "trackIds": []
             }
         
+
         return {
         "tracks": np.vstack([t.to_bbox() for t in self.tracks]),
         "trackVelocities": np.vstack([t.velocity for t in self.tracks]),
