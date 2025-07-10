@@ -1,13 +1,26 @@
+from ultralytics import YOLO
+import numpy as np
+import cv2
+import matplotlib.pyplot as plt
+
 class Detector:
     def __init__(self):
-        self.name = "Detector" # Do not change the name of the module as otherwise recording replay would break!
+        self.name = "Detector"
+        self.model = None
+        self.model_name = "yolov8m-football.pt"
+        self.iou_per_frame = []
 
     def start(self, data):
         # TODO: Implement start up procedure of the module
-        pass
+        if not self.model:
+            self.model = YOLO(self.model_name)
+        print(f"[{self.name}] Model '{self.model_name}' loaded") # For Debugging
+
+        # TODO:FRAGEN OB ES KLAR GEHT AUCH DIE EIGENEN AUFNAHMEN IN PICKLE FILES ZU SPEICHERN?
 
     def stop(self, data):
         # TODO: Implement shut down procedure of the module
+        print(f"[{self.name}] Model '{self.model_name}' finished detection")
         pass
 
     def step(self, data):
@@ -30,7 +43,22 @@ class Detector:
         #   2: Player
         #   3: Referee
 
+        # Loading Frame and converting it into RGB
+
+        # print("data:", data)
+
+        image = data["image"]
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        # Running YOLO on the Frame
+        results = self.model(image_rgb)
+        result = results[0]
+        boxes = result.boxes
+        detections = boxes.xywh.numpy()
+        classes = result.boxes.cls.numpy().reshape(-1, 1)
+        
+        
         return {
-            "detections": None,
-            "classes": None
+            "detections": detections,
+            "classes": classes
         }
