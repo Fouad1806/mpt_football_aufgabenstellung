@@ -1,4 +1,5 @@
 from ultralytics import YOLO
+import torch
 import numpy as np
 import cv2
 import matplotlib.pyplot as plt
@@ -6,15 +7,17 @@ import matplotlib.pyplot as plt
 class Detector:
     def __init__(self):
         self.name = "Detector"
-        self.model = None
         self.model_name = "yolov8m-football.pt"
+        self.model = None
         self.iou_per_frame = []
 
     def start(self, data):
+        print("CUDA available:", torch.cuda.is_available())
+        print("GPU name:", torch.cuda.get_device_name(0) if torch.cuda.is_available() else "N/A")
         # TODO: Implement start up procedure of the module
         if not self.model:
-            self.model = YOLO(self.model_name)
-        print(f"[{self.name}] Model '{self.model_name}' loaded") # For Debugging
+            self.model = YOLO(self.model_name).to('cuda' if torch.cuda.is_available() else 'cpu')
+        print(f"[{self.name}] Model loaded on: {'cuda' if torch.cuda.is_available() else 'cpu'}") # For Debugging
 
         # TODO:FRAGEN OB ES KLAR GEHT AUCH DIE EIGENEN AUFNAHMEN IN PICKLE FILES ZU SPEICHERN?
 
@@ -54,8 +57,8 @@ class Detector:
         results = self.model(image_rgb)
         result = results[0]
         boxes = result.boxes
-        detections = boxes.xywh.numpy()
-        classes = result.boxes.cls.numpy().reshape(-1, 1)
+        detections = boxes.xywh.cpu().numpy()
+        classes = result.boxes.cls.cpu().numpy().reshape(-1, 1)
         
         
         return {
