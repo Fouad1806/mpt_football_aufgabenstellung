@@ -6,15 +6,13 @@ from scipy.optimize import linear_sum_assignment
 
 def iou_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
     """
-    computes the Intersection over Union (IoU) for all pairings of 
-    two sets of bounding boxes in center format [cx, cy, w, h].
-    The output is a matrix of shape (len(a), len(b)) where each element (i, j)
-    represents the IoU between the i-th box in `a` and the j-th box in `b`.
+    return IoU matrix between two sets of center-format bounding boxes
+    A: (N, 4) B: (M, 4) -> IoU: (N, M)
     """
     if a.size == 0 or b.size == 0:
         return np.zeros((len(a), len(b)), dtype=np.float32)
 
-    # Center‑ → Corner‑Format
+    # convert to corner format
     a_xy1 = a[:, :2] - a[:, 2:] / 2
     a_xy2 = a[:, :2] + a[:, 2:] / 2
     b_xy1 = b[:, :2] - b[:, 2:] / 2
@@ -33,9 +31,9 @@ def iou_matrix(a: np.ndarray, b: np.ndarray) -> np.ndarray:
 
 class Filter:
     '''
-    Represents the state and update logic for a single track (object).
-    Each track is represented by a filter that keeps track of its position, velocity, age, number of missing frames
-    and class ID.
+    simple a/b filter for a single object
+    state = [cx, cy, w, h]
+    velocity = [vx, vy]
     '''
     
     _next_id = 0
@@ -86,7 +84,7 @@ class Filter:
         self.missing += 1
  
     def to_bbox(self):
-        return self.state
+        return self.state.copy()
     
 
 class Tracker:
@@ -110,14 +108,25 @@ class Tracker:
         '''
         detections, classes, flow, img_h, img_w = self._parse_input(data)
 
-        # a) Prädiktion
+        # a) prediction
         for tr in self.tracks:
             tr.predict(flow)
 
-        # b) Assoziation
-        cost = 1 - iou_matrix(np.vstack([tr.to_bbox() for tr in self.tracks]) if self.tracks else np.empty((0, 4)), 
-                              detections)
+        # b) association (distance gating)
+        pred_boxes = np.vstack([tr.to_bbox() for tr in self.tracks]) if self.tracks else np.empty((0, 4))
 
+        if pred_boxes.size == 0 or detections.size == 0:
+            cost = np.empty((len(pred_boxes), len(detections)))
+        else:
+            dist = np.linalg.norm(pred_boxes[:, None, :2] - detections[None, :, :2], axis=2)
+            mask = dist < 160
+            cost = np.full_like(dist, 1.0)
+            
+            if mask.any():
+                full_iou = 1- iou_matrix(pred_boxes, detections)
+                cost[mask] = full_iou[mask]
+                
+        # Hungarian algorithm for assignment
         matches: list[tuple[int, int]] = []
         unmatched_tracks = set(range(len(self.tracks)))
         unmatched_detections = set(range(len(detections)))
@@ -129,12 +138,12 @@ class Tracker:
                     matches.append((r, c))
                     unmatched_tracks.discard(r)
                     unmatched_detections.discard(c)
-
-        # c) Update
+        
+        # update matched tracks
         for ti, di in matches:
             self.tracks[ti].update(detections[di])
         
-        # d) Create new tracks for unmatched detections
+        # d) new tracks (birth)
         for di in unmatched_detections:
             if self.tracks:
                 best_iou = iou_matrix(detections[di : di + 1], np.vstack([tr.to_bbox() for tr in self.tracks])).max()
@@ -142,26 +151,18 @@ class Tracker:
                     continue
             self.tracks.append(Filter(detections[di], classes[di]))
 
-        # e) Remove tracks that are not valid anymore
-
+        # maintenance (clip + field-gate + missing limit)
         alive = []
         for tr in self.tracks:
             vmax = self.vmax_px.get(tr.cls, 50)
             tr.velocity = np.clip(tr.velocity, -vmax, vmax)
-
-            cx, cy = tr.state[:2]
             if not self._is_on_field(tr, img_w, img_h):
                 continue
-
             if tr.missing > self.max_missing.get(tr.cls, 5):
                 continue
-
             alive.append(tr)
-
         self.tracks = alive
-
-
-
+     
         return self._parse_output()  
     
     def _parse_input(self, data):
@@ -191,7 +192,6 @@ class Tracker:
                 "trackClasses": [],
                 "trackIds": []
             }
-        
 
         return {
         "tracks": np.vstack([t.to_bbox() for t in self.tracks]),
